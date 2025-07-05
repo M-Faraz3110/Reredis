@@ -15,6 +15,7 @@ func NewHandler(store *store.Store) *Handler {
 			"PING":    store.Ping,
 			"SET":     store.Set,
 			"GET":     store.Get,
+			"DEL":     store.Del,
 			"HSET":    store.HSet,
 			"HGET":    store.HGet,
 			"HGETALL": store.HGetAll,

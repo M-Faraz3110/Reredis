@@ -170,6 +170,34 @@ func (store *Store) Get(args []resp.Value) resp.Value {
 	}
 }
 
+func (store *Store) Del(args []resp.Value) resp.Value {
+	if len(args) < 1 {
+		errStr := "key not given or incorrect number of arguments passed"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+
+	deleted := 0
+
+	store.Mutex.Lock()
+	for _, key := range args {
+		_, ok := store.Pairs[*key.Bulk]
+		if ok {
+			delete(store.Pairs, *key.Bulk)
+			deleted++
+		}
+	}
+	store.Mutex.Unlock()
+
+	bulk := strconv.Itoa(deleted)
+	return resp.Value{
+		Type: "bulk",
+		Bulk: &bulk,
+	}
+}
+
 func (store *Store) HSet(args []resp.Value) resp.Value {
 	if len(args) != 3 {
 		errStr := "ERR wrong number of arguments for 'HSET'"
