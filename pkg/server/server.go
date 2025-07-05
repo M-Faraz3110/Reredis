@@ -24,6 +24,7 @@ func StartServer() {
 	handlerObj := handler.NewHandler(storeObj)
 
 	//cleanup goroutine goes here ig
+	go store.CleanUp(storeObj)
 
 	for {
 		//listen and accept incoming connections

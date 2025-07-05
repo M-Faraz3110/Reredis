@@ -11,7 +11,7 @@ const (
 type Value struct {
 	Type   string
 	String *string
-	Number *int
+	Number *int64
 	Bulk   *string
 	Array  []Value
 }

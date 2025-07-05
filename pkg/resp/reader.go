@@ -31,7 +31,7 @@ func (resp *Resp) ReadLine() ([]byte, int, error) {
 
 	}
 
-	return line, numOfBytes, nil
+	return line[:len(line)-2], numOfBytes, nil
 }
 
 func (resp *Resp) ReadInt() (int, int, error) {

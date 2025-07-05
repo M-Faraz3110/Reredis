@@ -12,9 +12,12 @@ type Handler struct {
 func NewHandler(store *store.Store) *Handler {
 	return &Handler{
 		HandlerFuncs: map[string]func([]resp.Value) resp.Value{
-			"PING": store.Ping,
-			"SET":  store.Set,
-			"GET":  store.Get,
+			"PING":    store.Ping,
+			"SET":     store.Set,
+			"GET":     store.Get,
+			"HSET":    store.HSet,
+			"HGET":    store.HGet,
+			"HGETALL": store.HGetAll,
 		},
 	}
 }
