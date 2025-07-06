@@ -2,15 +2,16 @@ package store
 
 import (
 	"reredis/pkg/resp"
+	"reredis/pkg/utils"
 	"strconv"
 	"sync"
 	"time"
 )
 
 type Store struct {
-	Pairs  map[string]any //maybe implement my own hashMap?
-	Hsets  map[string]HSet
-	Lists  map[string]*Deque
+	Pairs  *utils.HashMap //maybe implement my own hashMap?
+	Hsets  *utils.HashMap
+	Lists  *utils.HashMap
 	Mutex  sync.RWMutex
 	HMutex sync.RWMutex
 	LMutex sync.RWMutex
@@ -18,11 +19,11 @@ type Store struct {
 
 func NewStore() *Store {
 	return &Store{
-		Pairs:  map[string]any{},
-		Hsets:  map[string]HSet{},
+		Pairs:  utils.NewHashMap(4),
+		Hsets:  utils.NewHashMap(4),
 		Mutex:  sync.RWMutex{},
 		HMutex: sync.RWMutex{},
-		Lists:  map[string]*Deque{},
+		Lists:  utils.NewHashMap(4),
 		LMutex: sync.RWMutex{},
 	}
 }
@@ -53,7 +54,8 @@ func (store *Store) Set(args []resp.Value) resp.Value {
 		switch *args[i].Bulk {
 		case "NX":
 			{
-				_, ok := store.Pairs[*args[0].Bulk]
+				_, ok := store.Pairs.Get(*args[0].Bulk)
+				//_, ok := store.Pairs[*args[0].Bulk]
 				if ok {
 					errStr := "key already exists."
 					store.Mutex.RUnlock()
@@ -119,15 +121,15 @@ func (store *Store) Set(args []resp.Value) resp.Value {
 	//check for expiry and set that
 	store.Mutex.Lock()
 	if expiresAt == nil {
-		store.Pairs[*args[0].Bulk] = ValueStringObj{
+		store.Pairs.Set(*args[0].Bulk, ValueStringObj{
 			Value:     *args[1].Bulk,
 			ExpiresAt: time.Now().Add(time.Hour * 1),
-		}
+		})
 	} else {
-		store.Pairs[*args[0].Bulk] = ValueStringObj{
+		store.Pairs.Set(*args[0].Bulk, ValueStringObj{
 			Value:     *args[1].Bulk,
 			ExpiresAt: *expiresAt,
-		}
+		})
 	}
 	store.Mutex.Unlock()
 
@@ -148,7 +150,7 @@ func (store *Store) Get(args []resp.Value) resp.Value {
 	}
 
 	store.Mutex.RLock()
-	value, ok := store.Pairs[*args[0].Bulk].(ValueStringObj)
+	value, ok := store.Pairs.Get(*args[0].Bulk)
 	store.Mutex.RUnlock()
 
 	if !ok {
@@ -159,9 +161,23 @@ func (store *Store) Get(args []resp.Value) resp.Value {
 		}
 	}
 
-	if time.Now().After(value.ExpiresAt) { //if its expired, get rid of it
+	valueObj, ok := value.(ValueStringObj)
+	if !ok {
+		errStr := "INTERNAL ERROR"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+
+	if time.Now().After(valueObj.ExpiresAt) { //if its expired, get rid of it
 		errStr := "key does not exist or has expired"
-		delete(store.Pairs, *args[0].Bulk)
+
+		store.Mutex.Lock()
+		store.Pairs.Delete(*args[0].Bulk)
+		//delete(store.Pairs, *args[0].Bulk)
+		store.Mutex.Unlock()
+
 		return resp.Value{
 			Type:   "error",
 			String: &errStr,
@@ -170,7 +186,7 @@ func (store *Store) Get(args []resp.Value) resp.Value {
 
 	return resp.Value{
 		Type: "bulk",
-		Bulk: &value.Value,
+		Bulk: &valueObj.Value,
 	}
 }
 
@@ -187,9 +203,10 @@ func (store *Store) Del(args []resp.Value) resp.Value {
 
 	store.Mutex.Lock()
 	for _, key := range args {
-		_, ok := store.Pairs[*key.Bulk]
+		_, ok := store.Pairs.Get(*key.Bulk)
 		if ok {
-			delete(store.Pairs, *key.Bulk)
+			store.Pairs.Delete(*key.Bulk)
+			//delete(store.Pairs, *key.Bulk)
 			deleted++
 		}
 	}
@@ -217,17 +234,29 @@ func (store *Store) HSet(args []resp.Value) resp.Value {
 
 	store.HMutex.Lock()
 
-	if _, ok := store.Hsets[hkey]; !ok {
-		store.Hsets[hkey] = HSet{
-			Hset:      map[string]any{},
+	var hsetObj *HSet
+	var hset any
+	var ok bool
+
+	hset, ok = store.Hsets.Get(hkey)
+	if !ok {
+		hset = &HSet{
+			Hset:      utils.NewHashMap(4),
 			ExpiresAt: time.Now().Add(1 * time.Hour),
 		}
+		store.Hsets.Set(hkey, hset)
 	}
 
-	store.Hsets[hkey].Hset[key] = ValueStringObj{
+	hsetObj = hset.(*HSet)
+
+	hsetObj.Hset.Set(key, ValueStringObj{
 		Value:     value,
 		ExpiresAt: time.Now(),
-	}
+	})
+	// store.Hsets[hkey].Hset[key] = ValueStringObj{
+	// 	Value:     value,
+	// 	ExpiresAt: time.Now(),
+	// }
 
 	store.HMutex.Unlock()
 
@@ -251,19 +280,57 @@ func (store *Store) HGet(args []resp.Value) resp.Value {
 	key := *args[1].Bulk
 
 	store.HMutex.RLock()
-	value, ok := store.Hsets[hkey].Hset[key].(ValueStringObj)
-	store.HMutex.RUnlock()
-
+	hset, ok := store.Hsets.Get(hkey)
 	if !ok {
+		store.HMutex.RUnlock()
 		return resp.Value{
 			Type: "null",
 		}
 	}
 
-	if time.Now().After(store.Hsets[hkey].ExpiresAt) {
+	hsetObj, ok := hset.(*HSet)
+	if !ok {
+		store.HMutex.RUnlock()
+		errStr := "INTERNAL ERROR"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+
+	value, ok := hsetObj.Hset.Get(key)
+	if !ok {
+		store.HMutex.RUnlock()
+		return resp.Value{
+			Type: "null",
+		}
+	}
+
+	valueObj, ok := value.(ValueStringObj)
+	if !ok {
+		store.HMutex.RUnlock()
+		errStr := "INTERNAL ERROR"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+	//value, ok := store.Hsets[hkey].Hset[key].(ValueStringObj)
+	store.HMutex.RUnlock()
+
+	// if !ok {
+	// 	return resp.Value{
+	// 		Type: "null",
+	// 	}
+	// }
+
+	if time.Now().After(hsetObj.ExpiresAt) {
 		errStr := "hset does not exist or has expired"
 
-		delete(store.Hsets, hkey)
+		store.HMutex.Lock()
+		store.Hsets.Delete(hkey)
+		//delete(store.Hsets, hkey)
+		store.HMutex.Unlock()
 
 		return resp.Value{
 			Type:   "error",
@@ -273,7 +340,7 @@ func (store *Store) HGet(args []resp.Value) resp.Value {
 
 	return resp.Value{
 		Type: "bulk",
-		Bulk: &value.Value,
+		Bulk: &valueObj.Value,
 	}
 }
 
@@ -289,7 +356,8 @@ func (store *Store) HGetAll(args []resp.Value) resp.Value {
 	hkey := *args[0].Bulk
 
 	store.HMutex.RLock()
-	set, ok := store.Hsets[hkey]
+	hset, ok := store.Hsets.Get(hkey)
+	//set, ok := store.Hsets[hkey]
 	store.HMutex.RUnlock()
 
 	if !ok {
@@ -298,13 +366,26 @@ func (store *Store) HGetAll(args []resp.Value) resp.Value {
 		}
 	}
 
+	hsetObj, ok := hset.(*HSet)
+	if !ok {
+		store.HMutex.RUnlock()
+		errStr := "INTERNAL ERROR"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+
 	res := []resp.Value{}
 
-	for key, value := range set.Hset {
-		valObj := value.(ValueStringObj)
+	for _, value := range hsetObj.Hset.Buckets {
+		valObj, ok := value.Value.(ValueStringObj)
+		if !ok {
+			continue //empty idx
+		}
 		res = append(res, resp.Value{
 			Type: "bulk",
-			Bulk: &key,
+			Bulk: &value.Key,
 		})
 		res = append(res, resp.Value{
 			Type: "bulk",
@@ -330,29 +411,41 @@ func (store *Store) LPush(args []resp.Value) resp.Value {
 	key := *args[0].Bulk
 
 	store.LMutex.RLock()
-	dq, ok := store.Lists[key]
+	dq, ok := store.Lists.Get(key)
+	//dq, ok := store.Lists[key]
 	store.LMutex.RUnlock()
 
+	var dqObj *Deque
 	//if list doesnt exist
 	if !ok {
-		dq = NewDeque(4)
+		dqObj = NewDeque(4)
+	} else {
+		dqObj, ok = dq.(*Deque)
+		if !ok {
+			errStr := "INTERNAL ERROR"
+			return resp.Value{
+				Type:   "error",
+				String: &errStr,
+			}
+		}
 	}
 
 	store.LMutex.Lock()
 	for i := 1; i < len(args); i++ {
 		val := *args[i].Bulk
-		if dq.Size == len(dq.Buffer) {
-			dq.Grow()
+		if dqObj.Size == len(dqObj.Buffer) {
+			dqObj.Grow()
 		}
-		dq.Head = dq.Wrap(dq.Head - 1)
-		dq.Buffer[dq.Head] = val
-		dq.Size++
+		dqObj.Head = dqObj.Wrap(dqObj.Head - 1)
+		dqObj.Buffer[dqObj.Head] = val
+		dqObj.Size++
 	}
 
-	store.Lists[key] = dq
+	store.Lists.Set(key, dqObj)
+	//store.Lists[key] = dq
 	store.LMutex.Unlock()
 
-	resNum := strconv.Itoa(dq.Size)
+	resNum := strconv.Itoa(dqObj.Size)
 
 	return resp.Value{
 		Type: "bulk",
@@ -372,30 +465,42 @@ func (store *Store) RPush(args []resp.Value) resp.Value {
 	key := *args[0].Bulk
 
 	store.LMutex.RLock()
-	dq, ok := store.Lists[key]
+	dq, ok := store.Lists.Get(key)
+	//dq, ok := store.Lists[key]
 	store.LMutex.RUnlock()
 
+	var dqObj *Deque
 	//if list doesnt exist
 	if !ok {
-		dq = NewDeque(4)
+		dqObj = NewDeque(4)
+	} else {
+		dqObj, ok = dq.(*Deque)
+		if !ok {
+			errStr := "INTERNAL ERROR"
+			return resp.Value{
+				Type:   "error",
+				String: &errStr,
+			}
+		}
 	}
 
 	store.LMutex.Lock()
 
 	for i := 1; i < len(args); i++ {
 		val := *args[i].Bulk
-		if dq.Size == len(dq.Buffer) {
-			dq.Grow()
+		if dqObj.Size == len(dqObj.Buffer) {
+			dqObj.Grow()
 		}
-		dq.Buffer[dq.Tail] = val
-		dq.Tail = dq.Wrap(dq.Tail + 1)
-		dq.Size++
+		dqObj.Buffer[dqObj.Tail] = val
+		dqObj.Tail = dqObj.Wrap(dqObj.Tail + 1)
+		dqObj.Size++
 	}
 
-	store.Lists[key] = dq
+	store.Lists.Set(key, dqObj)
+	//store.Lists[key] = dq
 	store.LMutex.Unlock()
 
-	resNum := strconv.Itoa(dq.Size)
+	resNum := strconv.Itoa(dqObj.Size)
 
 	return resp.Value{
 		Type: "bulk",
@@ -415,7 +520,8 @@ func (store *Store) LPop(args []resp.Value) resp.Value {
 	key := *args[0].Bulk
 
 	store.LMutex.RLock()
-	dq, ok := store.Lists[key]
+	dq, ok := store.Lists.Get(key)
+	//dq, ok := store.Lists[key]
 	store.LMutex.RUnlock()
 
 	if !ok {
@@ -424,10 +530,19 @@ func (store *Store) LPop(args []resp.Value) resp.Value {
 		}
 	}
 
+	dqObj, ok := dq.(*Deque)
+	if !ok {
+		errStr := "INTERNAL ERROR"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+
 	store.LMutex.Lock()
-	val := dq.Buffer[dq.Head]
-	dq.Head = dq.Wrap(dq.Head + 1)
-	dq.Size--
+	val := dqObj.Buffer[dqObj.Head]
+	dqObj.Head = dqObj.Wrap(dqObj.Head + 1)
+	dqObj.Size--
 	store.LMutex.Unlock()
 
 	return resp.Value{
@@ -448,7 +563,8 @@ func (store *Store) RPop(args []resp.Value) resp.Value {
 	key := *args[0].Bulk
 
 	store.LMutex.RLock()
-	dq, ok := store.Lists[key]
+	dq, ok := store.Lists.Get(key)
+	//dq, ok := store.Lists[key]
 	store.LMutex.RUnlock()
 
 	if !ok {
@@ -457,10 +573,19 @@ func (store *Store) RPop(args []resp.Value) resp.Value {
 		}
 	}
 
+	dqObj, ok := dq.(*Deque)
+	if !ok {
+		errStr := "INTERNAL ERROR"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+
 	store.LMutex.Lock()
-	dq.Tail = dq.Wrap(dq.Tail - 1)
-	val := dq.Buffer[dq.Tail]
-	dq.Size--
+	dqObj.Tail = dqObj.Wrap(dqObj.Tail - 1)
+	val := dqObj.Buffer[dqObj.Tail]
+	dqObj.Size--
 	store.LMutex.Unlock()
 
 	return resp.Value{
@@ -480,7 +605,8 @@ func (store *Store) LLen(args []resp.Value) resp.Value {
 
 	key := *args[0].Bulk
 	store.LMutex.RLock()
-	dq, ok := store.Lists[key]
+	dq, ok := store.Lists.Get(key)
+	//dq, ok := store.Lists[key]
 	store.LMutex.RUnlock()
 
 	if !ok {
@@ -491,7 +617,16 @@ func (store *Store) LLen(args []resp.Value) resp.Value {
 		}
 	}
 
-	res := strconv.Itoa(dq.Size)
+	dqObj, ok := dq.(*Deque)
+	if !ok {
+		errStr := "INTERNAL ERROR"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+
+	res := strconv.Itoa(dqObj.Size)
 
 	return resp.Value{
 		Type: "bulk",
@@ -513,12 +648,22 @@ func (store *Store) LRange(args []resp.Value) resp.Value {
 	rIndexStr := *args[2].Bulk
 
 	store.LMutex.RLock()
-	dq, ok := store.Lists[key]
+	dq, ok := store.Lists.Get(key)
+	//dq, ok := store.Lists[key]
 	store.LMutex.RUnlock()
 
 	if !ok {
 		return resp.Value{
 			Type: "null",
+		}
+	}
+
+	dqObj, ok := dq.(*Deque)
+	if !ok {
+		errStr := "INTERNAL ERROR"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
 		}
 	}
 
@@ -539,17 +684,17 @@ func (store *Store) LRange(args []resp.Value) resp.Value {
 		}
 	}
 
-	lOffset := dq.Head + lIndex
-	if lOffset < dq.Head {
-		lOffset = dq.Head
+	lOffset := dqObj.Head + lIndex
+	if lOffset < dqObj.Head {
+		lOffset = dqObj.Head
 	}
 
 	rnge := (rIndex - lIndex) + 1
 	var rOffset int
-	if rnge > dq.Size {
-		rOffset = dq.Tail
+	if rnge > dqObj.Size {
+		rOffset = dqObj.Tail
 	} else {
-		rOffset = dq.Head + rnge
+		rOffset = dqObj.Head + rnge
 	}
 
 	res := []resp.Value{}
@@ -557,10 +702,10 @@ func (store *Store) LRange(args []resp.Value) resp.Value {
 	for lOffset != rOffset {
 		res = append(res, resp.Value{
 			Type: "bulk",
-			Bulk: &dq.Buffer[lOffset],
+			Bulk: &dqObj.Buffer[lOffset],
 		})
 
-		lOffset = dq.Wrap(lOffset + 1)
+		lOffset = dqObj.Wrap(lOffset + 1)
 	}
 	// for i := lOffset; i < rOffset; i++ {
 	// 	res = append(res, resp.Value{

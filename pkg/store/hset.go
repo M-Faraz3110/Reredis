@@ -1,8 +1,11 @@
 package store
 
-import "time"
+import (
+	"reredis/pkg/utils"
+	"time"
+)
 
 type HSet struct {
-	Hset      map[string]any
+	Hset      *utils.HashMap
 	ExpiresAt time.Time
 }

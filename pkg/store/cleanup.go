@@ -5,21 +5,30 @@ import "time"
 func CleanUp(store *Store) {
 	for {
 		store.Mutex.RLock()
-		for key, value := range store.Pairs { //check normal key value pairs for expiry
-			valObj := value.(ValueStringObj)
+		for _, value := range store.Pairs.Buckets { //check normal key value pairs for expiry
+			valObj, ok := value.Value.(ValueStringObj)
+			if !ok {
+				continue
+			}
 			if time.Now().After(valObj.ExpiresAt) {
 				store.Mutex.Lock()
-				delete(store.Pairs, key)
+				store.Pairs.Delete(value.Key)
+				//delete(store.Pairs, key)
 				store.Mutex.Unlock()
 			}
 		}
 		store.Mutex.RUnlock()
 
 		store.HMutex.RLock()
-		for key, value := range store.Hsets { //check Hsets for expiry
-			if time.Now().After(value.ExpiresAt) {
+		for _, value := range store.Hsets.Buckets { //check Hsets for expiry
+			valObj, ok := value.Value.(HSet)
+			if !ok {
+				continue
+			}
+			if time.Now().After(valObj.ExpiresAt) {
 				store.HMutex.Lock()
-				delete(store.Hsets, key)
+				store.Hsets.Delete(value.Key)
+				//delete(store.Hsets, key)
 				store.HMutex.Unlock()
 			}
 		}
