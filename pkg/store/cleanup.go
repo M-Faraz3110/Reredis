@@ -20,10 +20,15 @@ func CleanUp(store *Store) {
 		store.Mutex.RUnlock()
 
 		store.HMutex.RLock()
-		for key, value := range store.Hsets { //check Hsets for expiry
-			if time.Now().After(value.ExpiresAt) {
+		for _, value := range store.Hsets.Buckets { //check Hsets for expiry
+			valObj, ok := value.Value.(HSet)
+			if !ok {
+				continue
+			}
+			if time.Now().After(valObj.ExpiresAt) {
 				store.HMutex.Lock()
-				delete(store.Hsets, key)
+				store.Hsets.Delete(value.Key)
+				//delete(store.Hsets, key)
 				store.HMutex.Unlock()
 			}
 		}
