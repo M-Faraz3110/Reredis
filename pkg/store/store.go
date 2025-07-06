@@ -2,13 +2,14 @@ package store
 
 import (
 	"reredis/pkg/resp"
+	"reredis/pkg/utils"
 	"strconv"
 	"sync"
 	"time"
 )
 
 type Store struct {
-	Pairs  map[string]any //maybe implement my own hashMap?
+	Pairs  utils.HashMap //maybe implement my own hashMap?
 	Hsets  map[string]HSet
 	Lists  map[string]*Deque
 	Mutex  sync.RWMutex
@@ -18,7 +19,7 @@ type Store struct {
 
 func NewStore() *Store {
 	return &Store{
-		Pairs:  map[string]any{},
+		Pairs:  *utils.NewHashMap(4),
 		Hsets:  map[string]HSet{},
 		Mutex:  sync.RWMutex{},
 		HMutex: sync.RWMutex{},
@@ -53,7 +54,8 @@ func (store *Store) Set(args []resp.Value) resp.Value {
 		switch *args[i].Bulk {
 		case "NX":
 			{
-				_, ok := store.Pairs[*args[0].Bulk]
+				_, ok := store.Pairs.Get(*args[0].Bulk)
+				//_, ok := store.Pairs[*args[0].Bulk]
 				if ok {
 					errStr := "key already exists."
 					store.Mutex.RUnlock()
@@ -119,15 +121,15 @@ func (store *Store) Set(args []resp.Value) resp.Value {
 	//check for expiry and set that
 	store.Mutex.Lock()
 	if expiresAt == nil {
-		store.Pairs[*args[0].Bulk] = ValueStringObj{
+		store.Pairs.Set(*args[0].Bulk, ValueStringObj{
 			Value:     *args[1].Bulk,
 			ExpiresAt: time.Now().Add(time.Hour * 1),
-		}
+		})
 	} else {
-		store.Pairs[*args[0].Bulk] = ValueStringObj{
+		store.Pairs.Set(*args[0].Bulk, ValueStringObj{
 			Value:     *args[1].Bulk,
 			ExpiresAt: *expiresAt,
-		}
+		})
 	}
 	store.Mutex.Unlock()
 
@@ -148,7 +150,7 @@ func (store *Store) Get(args []resp.Value) resp.Value {
 	}
 
 	store.Mutex.RLock()
-	value, ok := store.Pairs[*args[0].Bulk].(ValueStringObj)
+	value, ok := store.Pairs.Get(*args[0].Bulk)
 	store.Mutex.RUnlock()
 
 	if !ok {
@@ -159,9 +161,19 @@ func (store *Store) Get(args []resp.Value) resp.Value {
 		}
 	}
 
-	if time.Now().After(value.ExpiresAt) { //if its expired, get rid of it
+	valueObj, ok := value.(ValueStringObj)
+	if !ok {
+		errStr := "INTERNAL ERROR"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+
+	if time.Now().After(valueObj.ExpiresAt) { //if its expired, get rid of it
 		errStr := "key does not exist or has expired"
-		delete(store.Pairs, *args[0].Bulk)
+		store.Pairs.Delete(*args[0].Bulk)
+		//delete(store.Pairs, *args[0].Bulk)
 		return resp.Value{
 			Type:   "error",
 			String: &errStr,
@@ -170,7 +182,7 @@ func (store *Store) Get(args []resp.Value) resp.Value {
 
 	return resp.Value{
 		Type: "bulk",
-		Bulk: &value.Value,
+		Bulk: &valueObj.Value,
 	}
 }
 
@@ -187,9 +199,10 @@ func (store *Store) Del(args []resp.Value) resp.Value {
 
 	store.Mutex.Lock()
 	for _, key := range args {
-		_, ok := store.Pairs[*key.Bulk]
+		_, ok := store.Pairs.Get(*key.Bulk)
 		if ok {
-			delete(store.Pairs, *key.Bulk)
+			store.Pairs.Delete(*key.Bulk)
+			//delete(store.Pairs, *key.Bulk)
 			deleted++
 		}
 	}
