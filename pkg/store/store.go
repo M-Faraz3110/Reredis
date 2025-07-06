@@ -10,8 +10,10 @@ import (
 type Store struct {
 	Pairs  map[string]any //maybe implement my own hashMap?
 	Hsets  map[string]HSet
+	Lists  map[string]*Deque
 	Mutex  sync.RWMutex
 	HMutex sync.RWMutex
+	LMutex sync.RWMutex
 }
 
 func NewStore() *Store {
@@ -20,6 +22,8 @@ func NewStore() *Store {
 		Hsets:  map[string]HSet{},
 		Mutex:  sync.RWMutex{},
 		HMutex: sync.RWMutex{},
+		Lists:  map[string]*Deque{},
+		LMutex: sync.RWMutex{},
 	}
 }
 
@@ -200,7 +204,7 @@ func (store *Store) Del(args []resp.Value) resp.Value {
 
 func (store *Store) HSet(args []resp.Value) resp.Value {
 	if len(args) != 3 {
-		errStr := "ERR wrong number of arguments for 'HSET'"
+		errStr := "wrong number of arguments for 'HSET'"
 		return resp.Value{
 			Type:   "error",
 			String: &errStr,
@@ -312,4 +316,262 @@ func (store *Store) HGetAll(args []resp.Value) resp.Value {
 		Type:  "array",
 		Array: res,
 	}
+}
+
+func (store *Store) LPush(args []resp.Value) resp.Value {
+	if len(args) < 2 {
+		errStr := "wrong number of arguments for 'LPUSH'"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+
+	key := *args[0].Bulk
+
+	store.LMutex.RLock()
+	dq, ok := store.Lists[key]
+	store.LMutex.RUnlock()
+
+	//if list doesnt exist
+	if !ok {
+		dq = NewDeque(4)
+	}
+
+	store.LMutex.Lock()
+	for i := 1; i < len(args); i++ {
+		val := *args[i].Bulk
+		if dq.Size == len(dq.Buffer) {
+			dq.Grow()
+		}
+		dq.Head = dq.Wrap(dq.Head - 1)
+		dq.Buffer[dq.Head] = val
+		dq.Size++
+	}
+
+	store.Lists[key] = dq
+	store.LMutex.Unlock()
+
+	resNum := strconv.Itoa(dq.Size)
+
+	return resp.Value{
+		Type: "bulk",
+		Bulk: &resNum,
+	}
+}
+
+func (store *Store) RPush(args []resp.Value) resp.Value {
+	if len(args) < 2 {
+		errStr := "wrong number of arguments for 'RPUSH'"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+
+	key := *args[0].Bulk
+
+	store.LMutex.RLock()
+	dq, ok := store.Lists[key]
+	store.LMutex.RUnlock()
+
+	//if list doesnt exist
+	if !ok {
+		dq = NewDeque(4)
+	}
+
+	store.LMutex.Lock()
+
+	for i := 1; i < len(args); i++ {
+		val := *args[i].Bulk
+		if dq.Size == len(dq.Buffer) {
+			dq.Grow()
+		}
+		dq.Buffer[dq.Tail] = val
+		dq.Tail = dq.Wrap(dq.Tail + 1)
+		dq.Size++
+	}
+
+	store.Lists[key] = dq
+	store.LMutex.Unlock()
+
+	resNum := strconv.Itoa(dq.Size)
+
+	return resp.Value{
+		Type: "bulk",
+		Bulk: &resNum,
+	}
+}
+
+func (store *Store) LPop(args []resp.Value) resp.Value {
+	if len(args) != 1 {
+		errStr := "wrong number of arguments for 'LPop'"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+
+	key := *args[0].Bulk
+
+	store.LMutex.RLock()
+	dq, ok := store.Lists[key]
+	store.LMutex.RUnlock()
+
+	if !ok {
+		return resp.Value{
+			Type: "null",
+		}
+	}
+
+	store.LMutex.Lock()
+	val := dq.Buffer[dq.Head]
+	dq.Head = dq.Wrap(dq.Head + 1)
+	dq.Size--
+	store.LMutex.Unlock()
+
+	return resp.Value{
+		Type: "bulk",
+		Bulk: &val,
+	}
+}
+
+func (store *Store) RPop(args []resp.Value) resp.Value {
+	if len(args) != 1 {
+		errStr := "wrong number of arguments for 'RPop'"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+
+	key := *args[0].Bulk
+
+	store.LMutex.RLock()
+	dq, ok := store.Lists[key]
+	store.LMutex.RUnlock()
+
+	if !ok {
+		return resp.Value{
+			Type: "null",
+		}
+	}
+
+	store.LMutex.Lock()
+	dq.Tail = dq.Wrap(dq.Tail - 1)
+	val := dq.Buffer[dq.Tail]
+	dq.Size--
+	store.LMutex.Unlock()
+
+	return resp.Value{
+		Type: "bulk",
+		Bulk: &val,
+	}
+}
+
+func (store *Store) LLen(args []resp.Value) resp.Value {
+	if len(args) != 1 {
+		errStr := "wrong number of arguments for 'LLen'"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+
+	key := *args[0].Bulk
+	store.LMutex.RLock()
+	dq, ok := store.Lists[key]
+	store.LMutex.RUnlock()
+
+	if !ok {
+		res := "0"
+		return resp.Value{
+			Type: "bulk",
+			Bulk: &res,
+		}
+	}
+
+	res := strconv.Itoa(dq.Size)
+
+	return resp.Value{
+		Type: "bulk",
+		Bulk: &res,
+	}
+}
+
+func (store *Store) LRange(args []resp.Value) resp.Value {
+	if len(args) != 3 {
+		errStr := "wrong number of arguments for 'LRange'"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+
+	key := *args[0].Bulk
+	lIndexStr := *args[1].Bulk
+	rIndexStr := *args[2].Bulk
+
+	store.LMutex.RLock()
+	dq, ok := store.Lists[key]
+	store.LMutex.RUnlock()
+
+	if !ok {
+		return resp.Value{
+			Type: "null",
+		}
+	}
+
+	lIndex, err := strconv.Atoi(lIndexStr)
+	if err != nil {
+		errStr := "range not a number for 'LRange'"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+	rIndex, err := strconv.Atoi(rIndexStr)
+	if err != nil {
+		errStr := "range not a number for 'LRange'"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+
+	lOffset := dq.Head + lIndex
+	if lOffset < dq.Head {
+		lOffset = dq.Head
+	}
+
+	rnge := (rIndex - lIndex) + 1
+	var rOffset int
+	if rnge > dq.Size {
+		rOffset = dq.Tail
+	} else {
+		rOffset = dq.Head + rnge
+	}
+
+	res := []resp.Value{}
+
+	for lOffset != rOffset {
+		res = append(res, resp.Value{
+			Type: "bulk",
+			Bulk: &dq.Buffer[lOffset],
+		})
+
+		lOffset = dq.Wrap(lOffset + 1)
+	}
+	// for i := lOffset; i < rOffset; i++ {
+	// 	res = append(res, resp.Value{
+	// 		Type: "bulk",
+	// 		Bulk: &dq.Buffer[i],
+	// 	})
+	// }
+
+	return resp.Value{
+		Type:  "array",
+		Array: res,
+	}
+
 }

@@ -19,6 +19,12 @@ func NewHandler(store *store.Store) *Handler {
 			"HSET":    store.HSet,
 			"HGET":    store.HGet,
 			"HGETALL": store.HGetAll,
+			"LPUSH":   store.LPush,
+			"RPUSH":   store.RPush,
+			"LPOP":    store.LPop,
+			"RPOP":    store.RPop,
+			"LLEN":    store.LLen,
+			"LRANGE":  store.LRange,
 		},
 	}
 }
