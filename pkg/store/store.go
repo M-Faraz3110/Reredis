@@ -9,22 +9,75 @@ import (
 )
 
 type Store struct {
-	Pairs  *utils.HashMap //maybe implement my own hashMap?
-	Hsets  *utils.HashMap
-	Lists  *utils.HashMap
-	Mutex  sync.RWMutex
-	HMutex sync.RWMutex
-	LMutex sync.RWMutex
+	Pairs   *utils.HashMap //maybe implement my own hashMap?
+	Hsets   *utils.HashMap
+	Lists   *utils.HashMap
+	InMulti bool
+	MultiQ  []MultiQCmd
+	Mutex   sync.RWMutex
+	HMutex  sync.RWMutex
+	LMutex  sync.RWMutex
 }
 
 func NewStore() *Store {
 	return &Store{
-		Pairs:  utils.NewHashMap(4),
-		Hsets:  utils.NewHashMap(4),
-		Mutex:  sync.RWMutex{},
-		HMutex: sync.RWMutex{},
-		Lists:  utils.NewHashMap(4),
-		LMutex: sync.RWMutex{},
+		Pairs:   utils.NewHashMap(4),
+		Hsets:   utils.NewHashMap(4),
+		Mutex:   sync.RWMutex{},
+		HMutex:  sync.RWMutex{},
+		Lists:   utils.NewHashMap(4),
+		LMutex:  sync.RWMutex{},
+		InMulti: false,
+		MultiQ:  nil,
+	}
+}
+
+func (store *Store) Multi(args []resp.Value) resp.Value {
+	if len(args) > 0 {
+		errStr := "incorrect number of arguments passed for 'MULTI'"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+
+	if store.InMulti {
+		errStr := "instance already in 'MULTI'"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+	store.InMulti = true
+	if store.MultiQ == nil {
+		store.MultiQ = []MultiQCmd{}
+	}
+
+	ok := "OK"
+	return resp.Value{
+		Type:   "string",
+		String: &ok,
+	}
+}
+
+func (store *Store) QMultiCmd(fn func([]resp.Value) resp.Value, args []resp.Value) resp.Value {
+	if !store.InMulti {
+		errStr := "instance not in 'MULTI'"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+
+	store.MultiQ = append(store.MultiQ, MultiQCmd{
+		Fn:   fn,
+		Args: args,
+	})
+
+	qd := "QUEUED"
+	return resp.Value{
+		Type:   "string",
+		String: &qd,
 	}
 }
 
@@ -719,4 +772,56 @@ func (store *Store) LRange(args []resp.Value) resp.Value {
 		Array: res,
 	}
 
+}
+
+func (store *Store) Exec(args []resp.Value) resp.Value {
+	if len(args) > 0 {
+		errStr := "wrong number of arguments for 'EXEC'"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+
+	if !store.InMulti {
+		errStr := "instance not in 'MULTI'"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+
+	res := []resp.Value{}
+
+	for _, val := range store.MultiQ {
+		resp := val.Fn(val.Args)
+		res = append(res, resp)
+	}
+
+	store.InMulti = false
+	store.MultiQ = nil
+
+	return resp.Value{
+		Type:  "array",
+		Array: res,
+	}
+}
+
+func (store *Store) Discard(args []resp.Value) resp.Value {
+	if len(args) > 0 {
+		errStr := "wrong number of arguments for 'DISCARD'"
+		return resp.Value{
+			Type:   "error",
+			String: &errStr,
+		}
+	}
+
+	store.InMulti = false
+	store.MultiQ = nil
+
+	ok := "OK"
+	return resp.Value{
+		Type:   "string",
+		String: &ok,
+	}
 }

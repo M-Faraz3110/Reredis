@@ -66,7 +66,7 @@ func handleConn(conn net.Conn, handlerObj *handler.Handler) {
 
 		writer := resp.NewWriter(conn)
 
-		handler, ok := handlerObj.HandlerFuncs[command]
+		handlerFn, ok := handlerObj.HandlerFuncs[command]
 		if !ok {
 			fmt.Println("Invalid command: ", command)
 			str := ""
@@ -74,7 +74,13 @@ func handleConn(conn net.Conn, handlerObj *handler.Handler) {
 			continue
 		}
 
-		result := handler(args)
+		var result resp.Value
+
+		if handlerObj.Store.InMulti && command != handler.EXEC_CMD {
+			result = handlerObj.Store.QMultiCmd(handlerFn, args)
+		} else {
+			result = handlerFn(args)
+		}
 		writer.Write(result)
 	}
 }

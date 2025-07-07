@@ -7,11 +7,15 @@ import (
 
 type Handler struct {
 	HandlerFuncs map[string]func([]resp.Value) resp.Value
+	Store        *store.Store
 }
 
 func NewHandler(store *store.Store) *Handler {
 	return &Handler{
 		HandlerFuncs: map[string]func([]resp.Value) resp.Value{
+			"MULTI":   store.Multi,
+			"EXEC":    store.Exec,
+			"DISCARD": store.Discard,
 			"PING":    store.Ping,
 			"SET":     store.Set,
 			"GET":     store.Get,
@@ -26,5 +30,10 @@ func NewHandler(store *store.Store) *Handler {
 			"LLEN":    store.LLen,
 			"LRANGE":  store.LRange,
 		},
+		Store: store,
 	}
 }
+
+const (
+	EXEC_CMD = "EXEC"
+)
