@@ -1,6 +1,7 @@
 package store
 
 import (
+	"log"
 	"reredis/pkg/resp"
 	"reredis/pkg/utils"
 	"strconv"
@@ -20,6 +21,7 @@ type Store struct {
 }
 
 func NewStore() *Store {
+	log.Println("LOG: Creating new store instance")
 	return &Store{
 		Pairs:   utils.NewHashMap(4),
 		Hsets:   utils.NewHashMap(4),
@@ -33,6 +35,7 @@ func NewStore() *Store {
 }
 
 func (store *Store) Multi(args []resp.Value) resp.Value {
+	log.Println("LOG: Executing MULTI command")
 	if len(args) > 0 {
 		errStr := "incorrect number of arguments passed for 'MULTI'"
 		return resp.Value{
@@ -61,6 +64,7 @@ func (store *Store) Multi(args []resp.Value) resp.Value {
 }
 
 func (store *Store) QMultiCmd(fn func([]resp.Value) resp.Value, args []resp.Value) resp.Value {
+	log.Println("LOG: Queueing command for MULTI transaction")
 	if !store.InMulti {
 		errStr := "instance not in 'MULTI'"
 		return resp.Value{
@@ -82,6 +86,7 @@ func (store *Store) QMultiCmd(fn func([]resp.Value) resp.Value, args []resp.Valu
 }
 
 func (store *Store) Ping(args []resp.Value) resp.Value {
+	log.Println("LOG: Executing PING command")
 	if len(args) == 0 {
 		str := "PONG"
 		return resp.Value{Type: "string", String: &str}
@@ -91,6 +96,7 @@ func (store *Store) Ping(args []resp.Value) resp.Value {
 }
 
 func (store *Store) Set(args []resp.Value) resp.Value {
+	log.Println("LOG: Executing SET command")
 	if len(args) < 2 {
 		errStr := "key and/or value not given or incorrect number of arguments passed"
 		return resp.Value{
@@ -194,6 +200,7 @@ func (store *Store) Set(args []resp.Value) resp.Value {
 }
 
 func (store *Store) Get(args []resp.Value) resp.Value {
+	log.Println("LOG: Executing GET command")
 	if len(args) != 1 {
 		errStr := "key not given or incorrect number of arguments passed"
 		return resp.Value{
@@ -244,6 +251,7 @@ func (store *Store) Get(args []resp.Value) resp.Value {
 }
 
 func (store *Store) Del(args []resp.Value) resp.Value {
+	log.Println("LOG: Executing DEL command")
 	if len(args) < 1 {
 		errStr := "key not given or incorrect number of arguments passed"
 		return resp.Value{
@@ -273,6 +281,7 @@ func (store *Store) Del(args []resp.Value) resp.Value {
 }
 
 func (store *Store) HSet(args []resp.Value) resp.Value {
+	log.Println("LOG: Executing HSET command")
 	if len(args) != 3 {
 		errStr := "wrong number of arguments for 'HSET'"
 		return resp.Value{
@@ -321,6 +330,7 @@ func (store *Store) HSet(args []resp.Value) resp.Value {
 }
 
 func (store *Store) HGet(args []resp.Value) resp.Value {
+	log.Println("LOG: Executing HGET command")
 	if len(args) != 2 {
 		errStr := "wrong number of arguments for 'hget'"
 		return resp.Value{
@@ -398,6 +408,7 @@ func (store *Store) HGet(args []resp.Value) resp.Value {
 }
 
 func (store *Store) HGetAll(args []resp.Value) resp.Value {
+	log.Println("LOG: Executing HGETALL command")
 	if len(args) != 1 {
 		errStr := "wrong number of arguments for 'hgetall'"
 		return resp.Value{
@@ -453,6 +464,7 @@ func (store *Store) HGetAll(args []resp.Value) resp.Value {
 }
 
 func (store *Store) LPush(args []resp.Value) resp.Value {
+	log.Println("LOG: Executing LPUSH command")
 	if len(args) < 2 {
 		errStr := "wrong number of arguments for 'LPUSH'"
 		return resp.Value{
@@ -507,6 +519,7 @@ func (store *Store) LPush(args []resp.Value) resp.Value {
 }
 
 func (store *Store) RPush(args []resp.Value) resp.Value {
+	log.Println("LOG: Executing RPUSH command")
 	if len(args) < 2 {
 		errStr := "wrong number of arguments for 'RPUSH'"
 		return resp.Value{
@@ -562,6 +575,7 @@ func (store *Store) RPush(args []resp.Value) resp.Value {
 }
 
 func (store *Store) LPop(args []resp.Value) resp.Value {
+	log.Println("LOG: Executing LPOP command")
 	if len(args) != 1 {
 		errStr := "wrong number of arguments for 'LPop'"
 		return resp.Value{
@@ -605,6 +619,7 @@ func (store *Store) LPop(args []resp.Value) resp.Value {
 }
 
 func (store *Store) RPop(args []resp.Value) resp.Value {
+	log.Println("LOG: Executing RPOP command")
 	if len(args) != 1 {
 		errStr := "wrong number of arguments for 'RPop'"
 		return resp.Value{
@@ -648,6 +663,7 @@ func (store *Store) RPop(args []resp.Value) resp.Value {
 }
 
 func (store *Store) LLen(args []resp.Value) resp.Value {
+	log.Println("LOG: Executing LLEN command")
 	if len(args) != 1 {
 		errStr := "wrong number of arguments for 'LLen'"
 		return resp.Value{
@@ -688,6 +704,7 @@ func (store *Store) LLen(args []resp.Value) resp.Value {
 }
 
 func (store *Store) LRange(args []resp.Value) resp.Value {
+	log.Println("LOG: Executing LRANGE command")
 	if len(args) != 3 {
 		errStr := "wrong number of arguments for 'LRange'"
 		return resp.Value{
@@ -775,6 +792,7 @@ func (store *Store) LRange(args []resp.Value) resp.Value {
 }
 
 func (store *Store) Exec(args []resp.Value) resp.Value {
+	log.Println("LOG: Executing EXEC command")
 	if len(args) > 0 {
 		errStr := "wrong number of arguments for 'EXEC'"
 		return resp.Value{
@@ -808,6 +826,7 @@ func (store *Store) Exec(args []resp.Value) resp.Value {
 }
 
 func (store *Store) Discard(args []resp.Value) resp.Value {
+	log.Println("LOG: Executing DISCARD command")
 	if len(args) > 0 {
 		errStr := "wrong number of arguments for 'DISCARD'"
 		return resp.Value{

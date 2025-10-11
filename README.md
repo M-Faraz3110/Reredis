@@ -25,6 +25,8 @@ go run main.go
 
 The server listens on port `6379` by default.
 
+![Demo](./demo.gif)
+
 ### Using Docker
 
 Build and run the Docker image:
