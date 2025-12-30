@@ -1,5 +1,7 @@
 package utils
 
+import "log"
+
 type HashMap struct {
 	Buckets []Entry
 	Count   int
@@ -30,19 +32,21 @@ func Hash(s string) uint64 {
 }
 
 func (hMap *HashMap) Set(key string, value any) {
-
 	//check load factor
 	if float64(hMap.Used)/float64(len(hMap.Buckets)) > 0.75 {
 		hMap.Resize()
 	}
 
 	hIdx := int(Hash(key) % uint64(len(hMap.Buckets)))
+	startIdx := hIdx
 
 	for {
+
 		val := hMap.Buckets[hIdx]
 		if val.Key == "" || val.Tombstone || val.Key == key { //no collision
 			if val.Key == "" || val.Tombstone {
 				hMap.Count++
+				hMap.Used++
 			}
 
 			hMap.Buckets[hIdx] = Entry{
@@ -50,17 +54,20 @@ func (hMap *HashMap) Set(key string, value any) {
 				Value:     value,
 				Tombstone: false,
 			}
-			hMap.Used++
 			return
 		}
-
 		hIdx = (hIdx + 1) % len(hMap.Buckets)
+		if hIdx == startIdx {
+			// Table is full, should not happen if resize works, but break to avoid infinite loop
+			log.Println("Hashmap is full, cannot insert")
+			panic("HashMap is full, cannot insert")
+		}
 	}
 }
 
 func (hMap *HashMap) Get(key string) (any, bool) {
 	hIdx := int(Hash(key) % uint64(len(hMap.Buckets)))
-
+	startIdx := hIdx
 	for {
 		val := hMap.Buckets[hIdx]
 		if val.Key == "" && !val.Tombstone {
@@ -72,12 +79,17 @@ func (hMap *HashMap) Get(key string) (any, bool) {
 		}
 
 		hIdx = (hIdx + 1) % len(hMap.Buckets)
+		if hIdx == startIdx {
+			// Searched all slots, key not found
+			return nil, false // for Get
+			// or return for Delete
+		}
 	}
 }
 
 func (hMap *HashMap) Delete(key string) {
 	hIdx := int(Hash(key) % uint64(len(hMap.Buckets)))
-
+	startIdx := hIdx
 	for {
 		val := hMap.Buckets[hIdx]
 		if val.Key == "" && !val.Tombstone {
@@ -91,16 +103,22 @@ func (hMap *HashMap) Delete(key string) {
 		}
 
 		hIdx = (hIdx + 1) % len(hMap.Buckets)
+		if hIdx == startIdx {
+			// Searched all slots, key not found
+			return
+			// or return for Delete
+		}
 	}
 }
 
 func (hMap *HashMap) Resize() {
+	log.Println("Resizing..")
 	oldBkts := hMap.Buckets
 	hMap.Buckets = make([]Entry, len(oldBkts)*2)
 	hMap.Count = 0
 
 	for _, val := range oldBkts {
-		if val.Key != "" || !val.Tombstone {
+		if val.Key != "" && !val.Tombstone {
 			hMap.Set(val.Key, val.Value)
 		}
 	}

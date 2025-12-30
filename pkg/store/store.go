@@ -313,7 +313,7 @@ func (store *Store) HSet(args []resp.Value) resp.Value {
 
 	hsetObj.Hset.Set(key, ValueStringObj{
 		Value:     value,
-		ExpiresAt: time.Now(),
+		ExpiresAt: time.Now().Add(1 * time.Hour),
 	})
 	// store.Hsets[hkey].Hset[key] = ValueStringObj{
 	// 	Value:     value,

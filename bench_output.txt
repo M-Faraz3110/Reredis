@@ -1,0 +1,36 @@
+goos: darwin
+goarch: arm64
+pkg: reredis/bench
+cpu: Apple M1
+BenchmarkSet
+    benchmark_test.go:29: SET ops/sec: 84509.42
+    benchmark_test.go:29: SET ops/sec: 241691.84
+    benchmark_test.go:29: SET ops/sec: 257716.46
+    benchmark_test.go:29: SET ops/sec: 274801.52
+BenchmarkSet-8           	  309259	      3639 ns/op	     120 B/op	       5 allocs/op
+BenchmarkGet
+    benchmark_test.go:55: GET ops/sec: 93388.12
+    benchmark_test.go:55: GET ops/sec: 286875.72
+    benchmark_test.go:55: GET ops/sec: 271862.87
+    benchmark_test.go:55: GET ops/sec: 274740.90
+BenchmarkGet-8           	  326234	      3640 ns/op	      95 B/op	       4 allocs/op
+BenchmarkHSet
+    benchmark_test.go:76: HSET ops/sec: 133333.33
+    benchmark_test.go:76: HSET ops/sec: 252074.57
+    benchmark_test.go:76: HSET ops/sec: 303188.41
+    benchmark_test.go:76: HSET ops/sec: 275217.92
+BenchmarkHSet-8          	  363825	      3633 ns/op	     109 B/op	       6 allocs/op
+BenchmarkHGet
+    benchmark_test.go:149: HGET ops/sec: 53214.13
+    benchmark_test.go:149: HGET ops/sec: 247857.27
+    benchmark_test.go:149: HGET ops/sec: 236448.07
+    benchmark_test.go:149: HGET ops/sec: 255906.87
+BenchmarkHGet-8          	  283737	      3908 ns/op	     192 B/op	      11 allocs/op
+BenchmarkParallelSet
+    benchmark_test.go:179: Parallel SET ops/sec: 51948.05
+    benchmark_test.go:179: Parallel SET ops/sec: 210822.35
+    benchmark_test.go:179: Parallel SET ops/sec: 219132.85
+    benchmark_test.go:179: Parallel SET ops/sec: 197700.63
+BenchmarkParallelSet-8   	  262958	      5058 ns/op	     121 B/op	       5 allocs/op
+PASS
+ok  	reredis/bench	6.970s
